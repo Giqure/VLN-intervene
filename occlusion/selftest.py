@@ -1,4 +1,5 @@
 """No pytest/Habitat needed: run in the ETPNav Python 3.6 environment."""
+import json
 import numpy as np
 from .core.rig import Frame, Pose, Rig, View
 from .core.regions import Heading, Corridor, build_angular, check_angular_spec
@@ -54,9 +55,9 @@ def run():
         raise AssertionError('accepted %r' % (bad,))
     checks.append('asymmetric_and_column_regions')
     opt = {'base_url': 'https://x.test', 'api_key_env': 'SELFTEST_KEY', 'model_name': 'm', 'reasoning_effort': 'high',
-           'request': 'views', 'parser': 'x_range', 'timeout': 5, 'views': ['rgb'], 'prompt': 'p'}
+           'request': 'views', 'parser': 'x_range', 'timeout': 5, 'views': ['rgb'], 'prompt': 'dir={direction} ins={instruction}'}
     semantic.check_options(opt)
-    for bad in (dict(opt, timeout=0), dict(opt, views=[]), dict(opt, extra=1), dict(opt, base_url='x.test')):
+    for bad in (dict(opt, timeout=0), dict(opt, views=[]), dict(opt, prompt='dir={direction}'), dict(opt, prompt='no placeholder'), dict(opt, extra=1), dict(opt, base_url='x.test')):
         try:
             semantic.check_options(bad)
         except ValueError:
@@ -76,13 +77,17 @@ def run():
         return 'view=rgb x_range=[0.25, 0.5]', {'model': 'm', 'effort': 'high', 'usage': None}
     real, semantic.call_responses = semantic.call_responses, fake
     try:
-        iv = Intervention({'step': 1, 'center': 0.}, {'kind': 'model', 'options': opt},
+        iv = Intervention({'step': 1, 'center': 0., 'extra': {'instruction': 'go'}}, {'kind': 'model', 'options': opt},
                           {'kind': 'heading', 'occlusion': False, 'rows': 'axis', 'incremental': False,
                            'unseen_step': None}, 0, ('rgb',), rig)
         iv.on_obs(f)
     finally:
         semantic.call_responses = real
     assert len(calls) == 1 and iv.log()[0]['region']['spec']['bounds'] == [10, 19]
+    assert calls[0][0]['content'][0]['text'] == 'dir=0.0 ins=go' and calls[0][0]['content'][1]['text'] == 'view=rgb hfov=90.0 center=0.0'
+    assert iv.log()[0]['region']['request']['direction'] == 0.0
+    payload, info = semantic.build_views_input(opt, {'center': 30., 'extra': {'instruction': 'turn'}, 'ep': 'secret', 'category': 'secret'}, frame(1, 10.), rig)
+    assert info['direction'] == 20.0 and 'secret' not in json.dumps(payload) and 'ins=turn' in json.dumps(payload)
     mask = iv.last_masks['rgb'][0]
     assert mask[10:20].all() and mask.sum() == 10
     checks.append('model_region')

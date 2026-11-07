@@ -19,6 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .geom import wrap180
+
 ENV_FILE = Path(__file__).resolve().parents[3] / '.env'
 USER_AGENT = 'occlusion-client/0.1'  # the gateway's Cloudflare rejects urllib's default agent (HTTP 403, 1010)
 COMMON = ('base_url', 'api_key_env', 'model_name', 'reasoning_effort', 'request', 'parser', 'timeout')
@@ -58,9 +60,24 @@ def _png(arr):
 
 
 def build_views_input(options, cand, frame, rig):
-    """The prompt, then each requested view as 'view=<name>' text followed by its image."""
-    content = [{'type': 'input_text', 'text': options['prompt']}]
-    info = {'prompt': options['prompt'], 'views': {}}
+    """The prompt, then each requested view as a 'view=<name> hfov=<deg> center=<deg>' line and its image.
+
+    Only two candidate fields are read: the planned direction (cand['center'] relative to the robot's heading, in
+    degrees, positive to the left) and the episode instruction (cand['extra']['instruction']). Annotations,
+    categories, deviation steps and ground-truth paths are not sent. hfov is the view's full horizontal field of
+    view; center is the direction of its image centre, in the same robot-relative convention. The prompt must
+    contain {direction} and {instruction}.
+    """
+    if cand.get('center') is None:
+        raise ValueError('candidate has no planned direction (center)')
+    direction = round(float(wrap180(float(cand['center']) - float(frame.pose.yaw))), 1)
+    text = (cand.get('extra') or {}).get('instruction')
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError('candidate has no instruction (re-plan the batch)')
+    values = {'direction': '%.1f' % direction, 'instruction': text.strip()}
+    prompt = re.sub(r'\{(direction|instruction)\}', lambda m: values[m.group(1)], options['prompt'])
+    content = [{'type': 'input_text', 'text': prompt}]
+    info = {'prompt': prompt, 'direction': direction, 'instruction': values['instruction'], 'views': {}}
     for name in options['views']:
         view = rig.view(name)
         arr = np.asarray(frame.rgb[name])
@@ -69,9 +86,10 @@ def build_views_input(options, cand, frame, rig):
         if arr.shape[1] != view.mask_hw[1]:
             raise ValueError('view %s: image width %d != mask width %d' % (name, arr.shape[1], view.mask_hw[1]))
         png = _png(arr)
-        content.append({'type': 'input_text', 'text': 'view=%s' % name})
+        label = 'view=%s hfov=%.1f center=%.1f' % (name, view.hfov, view.yaw_offset)
+        content.append({'type': 'input_text', 'text': label})
         content.append({'type': 'input_image', 'image_url': 'data:image/png;base64,' + base64.b64encode(png).decode()})
-        info['views'][name] = {'shape': list(arr.shape), 'png_sha256': hashlib.sha256(png).hexdigest()}
+        info['views'][name] = {'label': label, 'shape': list(arr.shape), 'png_sha256': hashlib.sha256(png).hexdigest()}
     return [{'role': 'user', 'content': content}], info
 
 
@@ -145,6 +163,8 @@ def check_options(options):
     for key in ('base_url', 'api_key_env', 'model_name', 'reasoning_effort', 'prompt'):
         if key in options and (not isinstance(options[key], str) or not options[key].strip()):
             raise ValueError('model option %s must be a non-empty string' % key)
+    if options['request'] == 'views' and not all(k in options['prompt'] for k in ('{direction}', '{instruction}')):
+        raise ValueError('model option prompt must contain {direction} and {instruction}')
     if not options['base_url'].startswith(('http://', 'https://')):
         raise ValueError('model option base_url must start with http:// or https://')
     timeout = options['timeout']

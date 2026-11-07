@@ -77,7 +77,26 @@ def original_metrics(rows):
     return dict(done['metrics'])
 
 
+_INSTRUCTIONS = {}
+
+
+def instruction(split, ep):
+    """Episode instruction text from the preprocessed R2R-VLNCE table that failures() already falls back to."""
+    if split not in _INSTRUCTIONS:
+        path = DATASET / split / (split + '.json.gz')
+        if not path.is_file():
+            raise FileNotFoundError('no episode table at %s' % path)
+        with gzip.open(str(path), 'rt', encoding='utf-8') as stream:
+            _INSTRUCTIONS[split] = {str(e['episode_id']): e['instruction']['instruction_text']
+                                    for e in json.load(stream)['episodes']}
+    try:
+        return _INSTRUCTIONS[split][str(ep)]
+    except KeyError:
+        raise ValueError('episode %s is not in the %s episode table' % (ep, split))
+
+
 def candidate(model, split, review, file, info, offset, step, center, extra):
+    extra = dict(extra, instruction=instruction(split, review['episode_id']))
     rec = dict(model=model, split=split, ep=str(review['episode_id']), scene=str(info['scene_id']),
                trajectory_id=str(info['trajectory_id']), d=int(review['deviation_record_number']),
                d_unit=store.D_UNIT[model], offset=int(offset), step=int(step), center=center,

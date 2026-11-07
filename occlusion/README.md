@@ -60,7 +60,7 @@ SimpleVLN 还需要可访问的 vLLM OpenAI 兼容服务，以及与当前 split
 
 - 传输：Responses API，`POST {base_url}/v1/responses`，请求带自定义 `User-Agent`（网关会拦 urllib 的默认值，HTTP 403 / 1010）。响应的 `model` 或 `reasoning.effort` 与请求不符时直接报错，不当作成功。
 - 密钥：`api_key_env` 只写环境变量名，值放仓库根目录 `.env`（已在 `.gitignore`），shell 中已设置的同名变量优先。批次参数和记录里不出现密钥。
-- `request=views`：按 `views` 逐个发送该 view 的图（前缀文本 `view=<名>`），`prompt` 必填，没有隐含默认值。图宽必须等于该 view 的 `mask_hw[1]`。
+- `request=views`：发送内容只有 `prompt`、各 `views` 的图像，以及每张图前的一行 `view=<名> hfov=<度> center=<度>`。`prompt` 必填，没有隐含默认值，且必须包含 `{direction}` 和 `{instruction}`：前者替换为原模型这一步的计划方向（相对机器人当前朝向的角度，度，正为左，保留一位小数），后者替换为该 episode 的指令原文（`plan` 阶段从预处理 R2R-VLNCE 表取出，写入候选的 `extra.instruction`；换用 `plan` 之前生成的批次需重新 `plan`）。`hfov` 是该 view 的水平视场角，`center` 是画面正中心对应的方向，约定同上。除方向和指令外，不发送标注类别、偏离步号、GT 路径等任何候选字段。图宽必须等于该 view 的 `mask_hw[1]`。
 - `parser=x_range`：要求输出里恰有一个 `x_range=[左, 右]`（0~1 归一化横坐标），可带 `view=<名>`；只发了一个 view 时可省略。换算为 `[floor(左×W), ceil(右×W)−1]` 列。格式不符、越界或多个范围一律报错，该候选记为失败，不退回默认区域。`prompt` 需要要求模型按这个格式回答。
 - `reasoning_effort` 必填，不设默认值（该网关不指定时为 medium）。
 - 记录：第一个涂黑步的 `blackout` 记录里有 `region` 字段，包含提示词、图像 sha256、模型原始回答、实际模型名与 effort、token 用量和解析出的 spec。
