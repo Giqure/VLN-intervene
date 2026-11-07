@@ -1,0 +1,28 @@
+{
+  "model": "etpnav",
+  "split": "val_unseen",
+  "arm": "none",
+  "offset": 0,
+  "follow": 0,
+  "channels": [],
+  "depth_bias": "REQUIRED_NONNEGATIVE_METRES",
+  "depth_max": "REQUIRED_POSITIVE_METRES",
+  "region_spec": {
+    "kind": "heading",
+    "half": 15.0
+  },
+  "tracker_spec": {
+    "kind": "heading",
+    "occlusion": false,
+    "rows": "axis",
+    "incremental": false,
+    "unseen_step": null
+  },
+  "save_images": -1,
+  "adapter": {
+    "root": "/home/jwm/workspace/opensource/ETPNav",
+    "scratch": "/ABSOLUTE/ISOLATED/SCRATCH/etpnav",
+    "config": "run_r2r/iter_train.yaml",
+    "opts": []
+  }
+}

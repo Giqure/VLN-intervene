@@ -1,0 +1,16 @@
+{
+  "region_spec": {
+    "kind": "model",
+    "options": {
+      "base_url": "https://api-top.com",
+      "api_key_env": "TOP_OCCLUSION_API_KEY",
+      "model_name": "gpt-6.1-terra",
+      "reasoning_effort": "REQUIRED_STRING",
+      "request": "views",
+      "views": ["REQUIRED_VIEW_NAME"],
+      "prompt": "REQUIRED_PROMPT_ASKING_FOR: view=<name> x_range=[left, right]",
+      "parser": "x_range",
+      "timeout": "REQUIRED_POSITIVE_SECONDS"
+    }
+  }
+}

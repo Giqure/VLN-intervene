@@ -1,0 +1,33 @@
+{
+  "model": "simplevln",
+  "split": "val_unseen",
+  "arm": "rgb",
+  "offset": 0,
+  "follow": 0,
+  "channels": [
+    "rgb"
+  ],
+  "depth_bias": "REQUIRED_NONNEGATIVE_METRES",
+  "depth_max": "REQUIRED_POSITIVE_METRES",
+  "region_spec": {
+    "kind": "heading",
+    "half": 15.0
+  },
+  "tracker_spec": {
+    "kind": "heading",
+    "occlusion": false,
+    "rows": "axis",
+    "incremental": false,
+    "unseen_step": null
+  },
+  "save_images": -1,
+  "adapter": {
+    "root": "/home/jwm/workspace/opensource/SimpleVLN/eval",
+    "scratch": "/ABSOLUTE/ISOLATED/SCRATCH/simplevln",
+    "config": "config/vln_r2r.yaml",
+    "base_url": "REQUIRED_VLLM_OPENAI_BASE_URL",
+    "model_name": "REQUIRED_SERVED_MODEL_NAME",
+    "max_history": "REQUIRED_POSITIVE_INTEGER",
+    "gt_path": "REQUIRED_NATIVE_GT_PATH_WITH_{split}"
+  }
+}

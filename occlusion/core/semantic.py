@@ -1,0 +1,176 @@
+"""Region from a semantic model behind an API.
+
+Three replaceable parts: a request builder (frame -> API input), the Responses-API transport, and a response
+parser (text -> region spec). The parser returns a heading/columns spec, so the existing validation and tracking
+apply unchanged. Pillow is imported lazily, only when images are encoded.
+"""
+
+import base64
+import hashlib
+import io
+import json
+import math
+import os
+import re
+import socket
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import numpy as np
+
+ENV_FILE = Path(__file__).resolve().parents[3] / '.env'
+USER_AGENT = 'occlusion-client/0.1'  # the gateway's Cloudflare rejects urllib's default agent (HTTP 403, 1010)
+COMMON = ('base_url', 'api_key_env', 'model_name', 'reasoning_effort', 'request', 'parser', 'timeout')
+
+
+def load_env(path=None):
+    """KEY=VALUE lines of .env into os.environ; variables already set in the shell win."""
+    path = Path(path or ENV_FILE)
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in '"\'':
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def api_key(options):
+    load_env()
+    name = options['api_key_env']
+    value = os.environ.get(name, '')
+    if not value:
+        raise RuntimeError('environment variable %s is not set (put it in .env or the shell)' % name)
+    return value
+
+
+def _png(arr):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format='PNG')
+    return buf.getvalue()
+
+
+def build_views_input(options, cand, frame, rig):
+    """The prompt, then each requested view as 'view=<name>' text followed by its image."""
+    content = [{'type': 'input_text', 'text': options['prompt']}]
+    info = {'prompt': options['prompt'], 'views': {}}
+    for name in options['views']:
+        view = rig.view(name)
+        arr = np.asarray(frame.rgb[name])
+        if arr.dtype != np.uint8 or arr.ndim != 3 or arr.shape[2] != 3:
+            raise ValueError('view %s: rgb must be uint8 [H, W, 3]' % name)
+        if arr.shape[1] != view.mask_hw[1]:
+            raise ValueError('view %s: image width %d != mask width %d' % (name, arr.shape[1], view.mask_hw[1]))
+        png = _png(arr)
+        content.append({'type': 'input_text', 'text': 'view=%s' % name})
+        content.append({'type': 'input_image', 'image_url': 'data:image/png;base64,' + base64.b64encode(png).decode()})
+        info['views'][name] = {'shape': list(arr.shape), 'png_sha256': hashlib.sha256(png).hexdigest()}
+    return [{'role': 'user', 'content': content}], info
+
+
+def call_responses(options, payload):
+    """POST {base_url}/v1/responses; returns (text of the message output, metadata). Errors never carry the key."""
+    body = {'model': options['model_name'], 'input': payload,
+            'reasoning': {'effort': options['reasoning_effort']}}
+    req = urllib.request.Request(
+        options['base_url'].rstrip('/') + '/v1/responses', data=json.dumps(body).encode('utf-8'),
+        headers={'Authorization': 'Bearer ' + api_key(options), 'Content-Type': 'application/json',
+                 'User-Agent': USER_AGENT})
+    try:
+        data = json.loads(urllib.request.urlopen(req, timeout=float(options['timeout'])).read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError('region model HTTP %d: %s' % (e.code, e.read()[:500].decode('utf-8', 'replace')))
+    except (urllib.error.URLError, socket.timeout) as e:
+        raise RuntimeError('region model request failed: %s' % (getattr(e, 'reason', e),))
+    if data.get('status') != 'completed':
+        raise RuntimeError('region model response not completed: %r' % (data.get('status'),))
+    # The gateway once answered a gpt-5.6-luna request with gpt-6.1-sol, so a silent reroute is an error.
+    model = str(data.get('model', ''))
+    if not model.startswith(options['model_name']):
+        raise RuntimeError('region model answered by %r, requested %r' % (model, options['model_name']))
+    effort = (data.get('reasoning') or {}).get('effort')
+    if effort is not None and effort != options['reasoning_effort']:
+        raise RuntimeError('region model reasoning effort %r, requested %r' % (effort, options['reasoning_effort']))
+    text = ''.join(c.get('text', '') for o in data.get('output', []) if o.get('type') == 'message'
+                   for c in o.get('content', []) if c.get('type') == 'output_text')
+    if not text:
+        raise RuntimeError('region model returned no text')
+    return text, {'model': model, 'effort': effort, 'usage': data.get('usage')}
+
+
+def parse_x_range(text, options, rig):
+    """'view=<name> x_range=[a, b]' (a, b in 0..1 across the image) -> columns spec of the mask width."""
+    ranges = re.findall(r'x_range\s*=\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]', text)
+    if len(ranges) != 1:
+        raise ValueError('expected exactly one x_range=[a, b] in the model output, found %d: %r' %
+                         (len(ranges), text[:300]))
+    names = re.findall(r'view\s*=\s*([A-Za-z0-9_.\-]+)', text)
+    if len(set(names)) > 1:
+        raise ValueError('model output names several views: %r' % sorted(set(names)))
+    if names:
+        view = names[0]
+    elif len(options['views']) == 1:
+        view = options['views'][0]
+    else:
+        raise ValueError('model output names no view and several were sent: %r' % (text[:300],))
+    if view not in options['views']:
+        raise ValueError('model output view %r was not among the views sent %r' % (view, options['views']))
+    x0, x1 = sorted(float(v) for v in ranges[0])
+    if not (0.0 <= x0 and x1 <= 1.0):
+        raise ValueError('x_range must lie in [0, 1], got [%g, %g]' % (x0, x1))
+    width = rig.view(view).mask_hw[1]
+    first = min(int(math.floor(x0 * width)), width - 1)
+    last = max(min(int(math.ceil(x1 * width)) - 1, width - 1), first)
+    return {'kind': 'columns', 'view': view, 'bounds': [first, last]}
+
+
+REQUESTS = {'views': (build_views_input, ('views', 'prompt'))}
+PARSERS = {'x_range': parse_x_range}
+
+
+def check_options(options):
+    """Shape and type check of region_spec.options (no network, no environment)."""
+    if not isinstance(options, dict) or options.get('request') not in REQUESTS or options.get('parser') not in PARSERS:
+        raise ValueError('model options need request in %s and parser in %s' % (sorted(REQUESTS), sorted(PARSERS)))
+    extras = REQUESTS[options['request']][1]
+    if set(options) != set(COMMON) | set(extras):
+        raise ValueError('model options have missing or unexpected fields: %s' % sorted(set(options) ^ (set(COMMON) | set(extras))))
+    for key in ('base_url', 'api_key_env', 'model_name', 'reasoning_effort', 'prompt'):
+        if key in options and (not isinstance(options[key], str) or not options[key].strip()):
+            raise ValueError('model option %s must be a non-empty string' % key)
+    if not options['base_url'].startswith(('http://', 'https://')):
+        raise ValueError('model option base_url must start with http:// or https://')
+    timeout = options['timeout']
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not timeout > 0:
+        raise ValueError('model option timeout must be a positive number of seconds')
+    if 'views' in options and (not isinstance(options['views'], list) or not options['views'] or
+                               any(not isinstance(v, str) or not v for v in options['views'])):
+        raise ValueError('model option views must be a non-empty list of view names')
+
+
+def check_rig(options, rig):
+    """Views exist in the rig, and the API key variable is available."""
+    for name in options.get('views', []):
+        try:
+            rig.view(name)
+        except KeyError:
+            raise ValueError('model option views: unknown view %r (rig has %s)' % (name, [v.name for v in rig.views]))
+    api_key(options)
+
+
+def region_from_model(options, cand, frame, rig):
+    """(columns spec, record) for the first active frame."""
+    build, _ = REQUESTS[options['request']]
+    payload, request = build(options, cand, frame, rig)
+    text, meta = call_responses(options, payload)
+    spec = PARSERS[options['parser']](text, options, rig)
+    record = {'request': request, 'response_text': text, 'spec': spec}
+    record.update(meta)
+    return spec, record

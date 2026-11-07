@@ -1,0 +1,15 @@
+{
+  "region_spec": {
+    "kind": "corridor",
+    "rho": "REQUIRED_POSITIVE_METRES",
+    "hmin": "REQUIRED_METRES",
+    "hmax": "REQUIRED_GREATER_THAN_HMIN",
+    "r_near": "REQUIRED_NONNEGATIVE_METRES",
+    "length": "REQUIRED_POSITIVE_METRES",
+    "still": "REQUIRED_NONNEGATIVE_METRES"
+  },
+  "tracker_spec": {
+    "kind": "volume",
+    "ds": "REQUIRED_POSITIVE_METRES"
+  }
+}

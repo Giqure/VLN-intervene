@@ -1,0 +1,32 @@
+{
+  "model": "omninav",
+  "split": "val_unseen",
+  "arm": "rgb",
+  "offset": 0,
+  "follow": 0,
+  "channels": [
+    "rgb"
+  ],
+  "depth_bias": "REQUIRED_NONNEGATIVE_METRES",
+  "depth_max": "REQUIRED_POSITIVE_METRES",
+  "region_spec": {
+    "kind": "heading",
+    "half": 15.0
+  },
+  "tracker_spec": {
+    "kind": "heading",
+    "occlusion": false,
+    "rows": "axis",
+    "incremental": false,
+    "unseen_step": null
+  },
+  "save_images": -1,
+  "adapter": {
+    "root": "/home/jwm/workspace/opensource/OmniNav/infer_r2r_rxr",
+    "scratch": "/ABSOLUTE/ISOLATED/SCRATCH/omninav",
+    "config": "data/r2r_pano.yaml",
+    "model_path": "/ABSOLUTE/OMNINAV/CHECKPOINT",
+    "opts": [],
+    "history": "clean | blackened"
+  }
+}
