@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from .core import semantic, stats, store
-from .core.regions import check_angular_spec, columns_range
+from .core.regions import check_angular_spec, columns_range, rows_range
 from .core.rig import Rig
 from .core.trackers import make_tracker
 from .paths import REPO_ROOT, RESULTS, WORKSPACE
@@ -80,11 +80,22 @@ def validate_params(params):
         raise ValueError('invalid corridor geometry')
     allowed = {'heading': ('occlusion', 'rows', 'incremental', 'unseen_step'),
                'surface': ('rows', 'gap_max', 'near_z'), 'volume': ('ds',)}
+    optional = {'surface': ('v_top', 'v_bottom')}      # absent = no vertical bound (the original two-face fan)
     tk = tracker.get('kind')
-    if tk not in allowed or set(tracker) != set(allowed[tk]) | {'kind'}:
+    if tk not in allowed or not (set(allowed[tk]) | {'kind'} <= set(tracker) <=
+                                 set(allowed[tk]) | set(optional.get(tk, ())) | {'kind'}):
         raise ValueError('tracker has missing or unexpected parameters')
+    for key in ('v_top', 'v_bottom'):
+        if tracker.get(key) is not None and not -90 < numeric(tracker[key], 'tracker.' + key) < 90:
+            raise ValueError('tracker.%s must be in (-90, 90) degrees (positive up)' % key)
+    if tracker.get('v_top') is not None and tracker.get('v_bottom') is not None \
+            and not tracker['v_top'] > tracker['v_bottom']:
+        raise ValueError('tracker.v_top must be greater than tracker.v_bottom')
     if (kind == 'corridor') != (tk == 'volume'):
         raise ValueError('heading pairs with heading/surface; corridor pairs with volume')
+    if ((kind == 'columns' and 'rows' in region) or
+            (kind == 'model' and region['options'].get('parser') == 'xy_range')) and tk != 'surface':
+        raise ValueError('a region with vertical bounds (rows / xy_range) needs the surface tracker')
     for key in ('occlusion', 'incremental'):
         if key in tracker and not isinstance(tracker[key], bool):
             raise ValueError('tracker.%s must be bool' % key)
@@ -123,6 +134,7 @@ def configure(params):
     make_tracker(params['tracker_spec'], maps[0])
     if params['region_spec']['kind'] == 'columns':
         columns_range(params['region_spec'], maps[0])
+        rows_range(params['region_spec'], maps[0])
     if params['region_spec']['kind'] == 'model':
         semantic.check_rig(params['region_spec']['options'], maps[0])
     if params['model'] == 'simplevln':

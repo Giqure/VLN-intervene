@@ -1,0 +1,14 @@
+{
+  "region_spec": {
+    "kind": "heading",
+    "half": 15.0
+  },
+  "tracker_spec": {
+    "kind": "surface",
+    "rows": "REQUIRED_POSITIVE_INTEGER",
+    "gap_max": "REQUIRED_POSITIVE_DEGREES",
+    "near_z": "REQUIRED_POSITIVE_METRES",
+    "v_top": "UPPER_BOUND_DEGREES_POSITIVE_UP_OR_OMIT",
+    "v_bottom": "LOWER_BOUND_DEGREES_POSITIVE_UP_OR_OMIT"
+  }
+}

@@ -137,6 +137,18 @@ class Rig(object):
         edge = lambda x: math.degrees(math.atan((1.0 - 2.0 * x / width) * tan_h)) + v.yaw_offset
         return edge(int(last) + 1), edge(int(first))
 
+    def row_span(self, view, first, last):
+        """Vertical angles (v_top, v_bottom) in degrees, positive up, of the edges that enclose mask rows first..last.
+
+        Same pinhole model as rays(): focal length from the horizontal field of view and the mask width, square
+        pixels, the optical axis at the image centre. Row 0 is the top edge, so a smaller row is higher.
+        """
+        v = self.view(view)
+        h, w = v.mask_hw
+        focal = (w / 2.0) / math.tan(math.radians(v.hfov / 2.0))
+        edge = lambda y: math.degrees(math.atan((h / 2.0 - y) / focal))
+        return edge(int(first)), edge(int(last) + 1)
+
     def nearest_view(self, rel):
         rel = np.asarray(rel, dtype=np.float64)
         centers = np.asarray([v.yaw_offset for v in self.views], dtype=np.float64)

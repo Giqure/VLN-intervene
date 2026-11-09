@@ -37,6 +37,7 @@ class Heading(Region):
             raise ValueError('center must be finite and left/right must be nonnegative')
         self.lo = self.center - self.right
         self.hi = self.center + self.left
+        self.band = None          # (v_top, v_bottom) degrees, positive up; set by build_angular from a columns spec with rows
 
     def unwrap(self, h):
         return self.center + wrap180(np.asarray(h, dtype=np.float64) - self.center)
@@ -46,7 +47,10 @@ class Heading(Region):
         return (u >= self.lo - 1e-9) & (u <= self.hi + 1e-9)
 
     def to_json(self):
-        return {'kind': self.kind, 'center': self.center, 'left': self.left, 'right': self.right}
+        data = {'kind': self.kind, 'center': self.center, 'left': self.left, 'right': self.right}
+        if self.band is not None:
+            data['band'] = list(self.band)
+        return data
 
 
 class Corridor(Region):
@@ -120,13 +124,16 @@ def check_angular_spec(spec):
         else:
             if _angle(b[1], 'region.bounds r') > _angle(b[0], 'region.bounds l'):
                 raise ValueError('with [l, r], the interval is [r, l], so r <= l is required')
-    elif kind == 'columns' and set(spec) == {'kind', 'view', 'bounds'}:
-        b = spec['bounds']
+    elif kind == 'columns' and set(spec) in ({'kind', 'view', 'bounds'}, {'kind', 'view', 'bounds', 'rows'}):
         if not isinstance(spec['view'], str) or not spec['view']:
             raise ValueError('columns region needs the view name')
-        if (not isinstance(b, (list, tuple)) or len(b) != 2 or
-                any(isinstance(x, bool) or not isinstance(x, int) or x < 0 for x in b)):
-            raise ValueError('columns bounds must be [l, r], nonnegative integer columns')
+        for key, what in (('bounds', 'columns'), ('rows', 'rows')):
+            if key not in spec:
+                continue
+            b = spec[key]
+            if (not isinstance(b, (list, tuple)) or len(b) != 2 or
+                    any(isinstance(x, bool) or not isinstance(x, int) or x < 0 for x in b)):
+                raise ValueError('columns region %s must be [a, b], nonnegative integer %s' % (key, what))
     else:
         raise ValueError('angular region has missing or unexpected parameters: %r' % (spec,))
 
@@ -145,13 +152,29 @@ def columns_range(spec, rig):
     return view.name, first, last
 
 
+def rows_range(spec, rig):
+    """(first row, last row) of a columns spec's optional vertical bounds, checked against the rig; None if absent."""
+    if 'rows' not in spec:
+        return None
+    view = rig.view(spec['view'])
+    first, last = sorted(spec['rows'])
+    if last >= view.mask_hw[0]:
+        raise ValueError('columns region: row %d outside view %s of height %d' %
+                         (last, view.name, view.mask_hw[0]))
+    return first, last
+
+
 def build_angular(spec, rig, yaw, th4_center):
     """Heading region for a heading/columns spec at the first active frame (world bearings)."""
     yaw = float(yaw)
     if spec['kind'] == 'columns':
         name, first, last = columns_range(spec, rig)
         lo, hi = rig.column_span(name, first, last)
-        return Heading(wrap180(yaw + 0.5 * (lo + hi)), 0.5 * (hi - lo))
+        region = Heading(wrap180(yaw + 0.5 * (lo + hi)), 0.5 * (hi - lo))
+        rows = rows_range(spec, rig)
+        if rows is not None:
+            region.band = rig.row_span(name, rows[0], rows[1])
+        return region
     if 'half' in spec:
         if th4_center is None:
             raise ValueError('candidate has no heading center')

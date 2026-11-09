@@ -187,8 +187,30 @@ def parse_x_range(text, options, rig):
     return {'kind': 'columns', 'view': view, 'bounds': [first, last]}
 
 
+def parse_xy_range(text, options, rig):
+    """parse_x_range plus an optional 'y_range=[top, bottom]' (0 = top edge, 1 = bottom edge of the view's image).
+
+    Absent y_range means the model sets no vertical bound (the region keeps the whole image height); that is a
+    stated choice in the prompt, not a fallback. More than one y_range, a reversed or out-of-range one is an error.
+    """
+    spec = parse_x_range(text, options, rig)
+    ranges = re.findall(r'y_range\s*=\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*\]', text)
+    if len(ranges) > 1:
+        raise ValueError('expected at most one y_range=[a, b] in the model output, found %d: %r' %
+                         (len(ranges), text[:300]))
+    if ranges:
+        y0, y1 = sorted(float(v) for v in ranges[0])
+        if not (0.0 <= y0 and y1 <= 1.0):
+            raise ValueError('y_range must lie in [0, 1], got [%g, %g]' % (y0, y1))
+        height = rig.view(spec['view']).mask_hw[0]
+        first = min(int(math.floor(y0 * height)), height - 1)
+        last = max(min(int(math.ceil(y1 * height)) - 1, height - 1), first)
+        spec['rows'] = [first, last]
+    return spec
+
+
 REQUESTS = {'views': (build_views_input, ('views', 'prompt'))}
-PARSERS = {'x_range': parse_x_range}
+PARSERS = {'x_range': parse_x_range, 'xy_range': parse_xy_range}
 
 
 def check_options(options):
@@ -203,6 +225,8 @@ def check_options(options):
             raise ValueError('model option %s must be a non-empty string' % key)
     if options['request'] == 'views' and not all(k in options['prompt'] for k in ('{direction}', '{instruction}')):
         raise ValueError('model option prompt must contain {direction} and {instruction}')
+    if (options['parser'] == 'xy_range') != ('y_range' in options['prompt']):
+        raise ValueError('the prompt must describe y_range exactly when the parser is xy_range')
     if not options['base_url'].startswith(('http://', 'https://')):
         raise ValueError('model option base_url must start with http:// or https://')
     timeout = options['timeout']

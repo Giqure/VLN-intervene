@@ -51,6 +51,7 @@ SimpleVLN 还需要可访问的 vLLM OpenAI 兼容服务，以及与当前 split
 | `{"kind": "heading", "bounds": [c, l, r]}` | `[c−r, c+l]`；`c` 为 `null` 或 `"th4"` 时取候选的 th4，数值时为 th4 坐标系下的角度；`l`、`r` 非负 |
 | `{"kind": "heading", "bounds": [l, r]}` | 带符号角度，区间 `[r, l]`（要求 `r ≤ l`），不以 th4 为中心 |
 | `{"kind": "columns", "view": "<view名>", "bounds": [l, r]}` | 该 view 掩码图的第 `l`～`r` 列（从 0 起，左边缘为 0，闭区间，顺序不限） |
+| `{"kind": "columns", "view": "<view名>", "bounds": [l, r], "rows": [t, b]}` | 同上，并限定掩码图的第 `t`～`b` 行（从 0 起，上边缘为 0，闭区间，顺序不限）。需要 `surface` tracker |
 
 `columns` 在第一个涂黑帧把整列像素换算成世界朝向区间，之后与 `heading` 区域相同，随机器人位姿跟随变化。`view` 必须显式给出，列号须小于该 view 的 `mask_hw[1]`；`plan` 阶段会按 rig 检查。选点阶段（`select/`）的可见性筛选不随 `region_spec` 改变。错误过道 `kind=corridor` 只配 `volume` tracker。替换配置片段时，要整体替换 `region_spec` 和 `tracker_spec`，不是追加冲突字段。
 
@@ -61,6 +62,7 @@ SimpleVLN 还需要可访问的 vLLM OpenAI 兼容服务，以及与当前 split
 - 传输：Responses API，`POST {base_url}/v1/responses`，请求带自定义 `User-Agent`（网关会拦 urllib 的默认值，HTTP 403 / 1010）。响应的 `model` 或 `reasoning.effort` 与请求不符时直接报错，不当作成功。
 - 密钥：`api_key_env` 只写环境变量名，值放仓库根目录 `.env`（已在 `.gitignore`），shell 中已设置的同名变量优先。批次参数和记录里不出现密钥。
 - `request=views`：发送内容只有 `prompt`、各 `views` 的图像，以及每张图前的一行 `view=<名> hfov=<度> center=<度>`。`prompt` 必填，没有隐含默认值，且必须包含 `{direction}` 和 `{instruction}`：前者替换为原模型这一步的计划方向（相对机器人当前朝向的角度，度，正为左，保留一位小数），后者替换为该 episode 的指令原文（`plan` 阶段从预处理 R2R-VLNCE 表取出，写入候选的 `extra.instruction`；换用 `plan` 之前生成的批次需重新 `plan`）。`hfov` 是该 view 的水平视场角，`center` 是画面正中心对应的方向，约定同上。除方向和指令外，不发送标注类别、偏离步号、GT 路径等任何候选字段。图宽必须等于该 view 的 `mask_hw[1]`。
+- `parser=xy_range`：在 `x_range` 之外，允许再给**至多一个** `y_range=[上, 下]`（0~1，0 为画面上边缘，1 为下边缘），换算为 `[floor(上×H), ceil(下×H)−1]` 行。给了 `y_range` 就按行列（上下左右 4 面）涂黑；不给就只按列，行界不设（区域保持整幅图高度）。两种输出都合法，`y_range` 越界、重复仍然报错。要求 `tracker` 必须是 `surface`（heading 整列涂黑，无法按行），并且提示词必须写明 `y_range`（`x_range` 解析器的提示词则不能出现它）。行界按该 view 的相机模型换算成垂直角（度，正为上），在定锚那一帧生效，之后锚点是世界点。区域里的行界和 `tracker_spec` 里的 `v_top`、`v_bottom` 不能同时给。提示词与配置示例见 `configs/omninav-rgb-model-rows.json`（surface 的 `rows`、`gap_max`、`near_z` 是演示值，不是实验默认值）。
 - `parser=x_range`：要求输出里恰有一个 `x_range=[左, 右]`（0~1 归一化横坐标），可带 `view=<名>`；只发了一个 view 时可省略。换算为 `[floor(左×W), ceil(右×W)−1]` 列。格式不符、越界或多个范围一律报错，该候选记为失败，不退回默认区域。`prompt` 需要要求模型按这个格式回答。
 - `reasoning_effort` 必填，不设默认值（该网关不指定时为 medium）。
 - 记录：第一个涂黑步的 `blackout` 记录里有 `region` 字段，包含提示词、图像 sha256、模型原始回答、实际模型名与 effort、token 用量和解析出的 spec。
@@ -74,6 +76,7 @@ SimpleVLN 还需要可访问的 vLLM OpenAI 兼容服务，以及与当前 split
 | `ds` | Volume 沿射线采样步长，米 |
 | `unseen_step` | Heading 未见方向射线间隔，度；显式 `null` 表示不补 |
 | `rows` | Heading 可为 `axis` 或正整数；Surface 必须为正整数，表示深度行采样间隔 |
+| `v_top`、`v_bottom` | 仅 Surface，可选，**度**，正为向上，取值在 (−90, 90)，要求 `v_top > v_bottom`。给出后区域由左右（`region_spec`）和上下两对面围成（4 面）；不写则上下不设界（原 2 面）。可只写一侧。上下界按“定锚那一帧相机看到的垂直角”选深度行，边界外的行不取、界上各补一行；锚点是世界点，定锚后不随相机俯仰变化。`plan` 阶段会按 rig 检查带内至少有两行。片段见 `configs/surface-band.fragment.json` |
 
 上述几何数值无隐含实验默认值，必须按批次明确给出。Heading 还必须显式设置 `occlusion`、`incremental` 和 `unseen_step`。`surface.fragment.json`、`corridor.fragment.json` 提供所需字段，不提供实验数值。
 

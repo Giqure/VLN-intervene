@@ -18,6 +18,32 @@ def _rows(height, rows):
     return sorted(set(list(range(0, height, rows)) + [height - 1]))
 
 
+def _band_rows(height, width, hfov, rows, v_top, v_bottom):
+    """Anchor rows of a surface region bounded above and below, as pixel rows of one depth image (top to bottom).
+
+    The two extra faces are vertical angles seen from the camera at the frame an anchor is fixed (degrees, positive
+    up, measured on the optical-axis column with the same pinhole model as Rig.rays). Rows come from the ordinary
+    `rows` grid, kept only inside [v_bottom, v_top], plus the first and last row inside the band so the region ends
+    at the bounds instead of at the next grid row. None means no bound on that side. Anchors are world points: once
+    fixed they do not follow the camera's vertical angle afterwards.
+    """
+    height, width = int(height), int(width)
+    focal = (width / 2.0) / math.tan(math.radians(float(hfov) / 2.0))
+    angle = np.degrees(np.arctan((height / 2.0 - (np.arange(height) + 0.5)) / focal))
+    top = 90.0 if v_top is None else float(v_top)
+    bottom = -90.0 if v_bottom is None else float(v_bottom)
+    inside = (angle <= top + 1e-9) & (angle >= bottom - 1e-9)
+    if not np.any(inside):
+        raise ValueError('vertical band [%g, %g] deg holds no row of the image (vertical field %.2f .. %.2f deg)' %
+                         (bottom, top, angle[-1], angle[0]))
+    first, last = np.flatnonzero(inside)[[0, -1]]
+    chosen = sorted(set(r for r in _rows(height, rows) if inside[r]) | {int(first), int(last)})
+    if len(chosen) < 2:
+        raise ValueError('vertical band [%g, %g] deg holds a single image row; a surface needs at least two' %
+                         (bottom, top))
+    return chosen
+
+
 def _merge_intervals(intervals, lo, hi):
     parts = []
     for a, b in intervals:
@@ -101,16 +127,27 @@ class HeadingTracker(Tracker):
         self.a_row = np.empty((0,), dtype=np.int64)
         self.a_w = np.empty((0, 3), dtype=np.float64)
         self.covered = []
+        self.band = None          # (v_top, v_bottom) vertical bounds in degrees; only SurfaceTracker sets it
         self._direction_mask = np.empty((0,), dtype=bool)
         self._n_hidden = 0
         self._last_spans = {}
         self._initialized = False
+
+    def _anchor_rows(self, view, height, width):
+        if self.band is None:
+            return _rows(height, self.rows)
+        return _band_rows(height, width, view.hfov, self.rows, self.band[0], self.band[1])
+
+    accepts_band = False
 
     def init(self, region, frame):
         if not isinstance(region, Heading):
             raise TypeError('HeadingTracker requires a Heading region')
         if self._initialized:
             raise RuntimeError('tracker is already initialized')
+        if region.band is not None and not self.accepts_band:
+            raise ValueError('a region with vertical bounds needs a surface tracker; '
+                             'a heading tracker blackens whole columns')
         self.region = region
         self._add(frame)
         self._add_unseen_directions(frame)
@@ -172,7 +209,7 @@ class HeadingTracker(Tracker):
             self.covered = _merge_intervals(self.covered + [[a, b] for a, b in new_coverage], low, high)
         for view, depth, col, hh in proposed:
             h, w = depth.shape
-            rows = _rows(h, self.rows)
+            rows = self._anchor_rows(view, h, w)
             directions, origin = self.rig.rays(view.name, depth.shape, pose)
             for row_index, pixel_row in enumerate(rows):
                 z = float(depth[pixel_row, col])
@@ -340,14 +377,51 @@ class HeadingTracker(Tracker):
 class SurfaceTracker(HeadingTracker):
     kind = 'surface'
 
-    def __init__(self, rig, rows, gap_max, near_z):
+    def __init__(self, rig, rows, gap_max, near_z, v_top=None, v_bottom=None):
         HeadingTracker.__init__(self, rig, occlusion=True, rows=rows,
                                 incremental=False, unseen_step=None)
         self.gap_max = float(gap_max)
         self.near_z = float(near_z)
         if self.gap_max <= 0 or self.near_z <= 0:
             raise ValueError('gap_max and near_z must be positive')
+        for label, value in (('v_top', v_top), ('v_bottom', v_bottom)):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or
+                                      not -90.0 < float(value) < 90.0):
+                raise ValueError('%s must be None or a number of degrees in (-90, 90)' % label)
+        if v_top is not None and v_bottom is not None and not v_top > v_bottom:
+            raise ValueError('v_top must be greater than v_bottom')
+        if v_top is not None or v_bottom is not None:
+            if isinstance(rows, str):
+                raise ValueError('a vertical band needs rows to be a positive integer')
+            self.band = (None if v_top is None else float(v_top), None if v_bottom is None else float(v_bottom))
         self._n_cell = 0
+
+    accepts_band = True
+
+    def init(self, region, frame):
+        """The vertical bounds come from tracker_spec (the same for every candidate) or from the region (one per
+        candidate, e.g. a model's y_range), never from both."""
+        if region.band is not None and not self._initialized:
+            if self.band is not None:
+                raise ValueError('vertical bounds are given both by tracker_spec and by the region; use one')
+            self.band = (float(region.band[0]), float(region.band[1]))
+            try:
+                self.check_rig()
+            except ValueError:
+                self.band = None
+                raise
+        HeadingTracker.init(self, region, frame)
+
+    def check_rig(self):
+        """Fail at planning time if the vertical band is unusable for any view of the rig."""
+        if self.band is None:
+            return
+        counts = set()
+        for view in self.rig.views:
+            h, w = view.depth_hw
+            counts.add(len(self._anchor_rows(view, h, w)))
+        if len(counts) != 1:
+            raise ValueError('views give different numbers of band rows %s; surface rows must align' % sorted(counts))
 
     def mask(self, frame):
         if not self._initialized:
@@ -397,6 +471,8 @@ class SurfaceTracker(HeadingTracker):
         self._last_state = self._state_base()
         self._last_state['spans'] = self._last_spans
         self._last_state['n_cell'] = int(n_cell)
+        if self.band is not None:
+            self._last_state['band'] = list(self.band)
         return masks
 
 
@@ -509,11 +585,13 @@ def make_tracker(spec, rig):
             raise ValueError('invalid heading tracker options: %s' % sorted(extra))
         return HeadingTracker(rig, **cfg)
     if kind == 'surface':
-        allowed = {'rows', 'gap_max', 'near_z'}
-        extra = set(cfg) - allowed
-        if extra or allowed - set(cfg):
-            raise ValueError('invalid surface tracker options: %s' % sorted(extra | (allowed - set(cfg))))
-        return SurfaceTracker(rig, **cfg)
+        required, optional = {'rows', 'gap_max', 'near_z'}, {'v_top', 'v_bottom'}
+        extra = set(cfg) - required - optional
+        if extra or required - set(cfg):
+            raise ValueError('invalid surface tracker options: %s' % sorted(extra | (required - set(cfg))))
+        tracker = SurfaceTracker(rig, **cfg)
+        tracker.check_rig()
+        return tracker
     if kind == 'volume':
         if set(cfg) != {'ds'}:
             raise ValueError('volume tracker requires only ds')
