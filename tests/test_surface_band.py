@@ -5,7 +5,6 @@ import pytest
 from occlusion.core.regions import Heading
 from occlusion.core.rig import Frame, Pose, Rig
 from occlusion.core.trackers import SurfaceTracker, _band_rows, _rows, make_tracker
-from occlusion.runner import validate_params
 
 H, W, HFOV = 120, 160, 90.0
 RIG = Rig.from_config('t', dict(views=[dict(name='front', yaw_offset=0.0, hfov=HFOV, depth_hw=(H, W), mask_hw=(H, W))],
@@ -15,7 +14,7 @@ POSE = Pose(np.zeros(3), 0.0)
 
 def frame(depth_m, step=1):
     rgb = np.zeros((H, W, 3), np.uint8)
-    return Frame(step, POSE, rgb, {'front': np.asarray(depth_m, np.float64) / 10.0 * 10.0})
+    return Frame(step, POSE, rgb, {'front': np.asarray(depth_m, np.float64)})
 
 
 def wall(distance=3.0):

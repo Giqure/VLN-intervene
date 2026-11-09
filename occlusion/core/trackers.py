@@ -401,10 +401,13 @@ class SurfaceTracker(HeadingTracker):
     def init(self, region, frame):
         """The vertical bounds come from tracker_spec (the same for every candidate) or from the region (one per
         candidate, e.g. a model's y_range), never from both."""
-        if region.band is not None and not self._initialized:
+        band = getattr(region, 'band', None)          # the type check of a non-Heading region is HeadingTracker.init's
+        if band is not None and not self._initialized:
             if self.band is not None:
                 raise ValueError('vertical bounds are given both by tracker_spec and by the region; use one')
-            self.band = (float(region.band[0]), float(region.band[1]))
+            if isinstance(self.rows, str):
+                raise ValueError('a vertical band needs rows to be a positive integer')
+            self.band = (float(band[0]), float(band[1]))
             try:
                 self.check_rig()
             except ValueError:

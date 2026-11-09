@@ -1,0 +1,45 @@
+{
+  "model": "omninav",
+  "split": "val_unseen",
+  "arm": "rgb",
+  "offset": 0,
+  "follow": 99,
+  "channels": [
+    "rgb"
+  ],
+  "depth_bias": 0.01,
+  "depth_max": 10.0,
+  "region_spec": {
+    "kind": "model",
+    "options": {
+      "base_url": "https://tokenadvent.com",
+      "api_key_env": "TA_OCCLUSION_API_KEY",
+      "model_name": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "request": "views",
+      "views": [
+        "left",
+        "front",
+        "right"
+      ],
+      "prompt": "# Role and objective\nYou assist an indoor vision-and-language navigation agent. The agent is following the instruction below. At the current step it chose to move toward the chosen direction below, and this choice deviates from the route the instruction describes.\nFind the visible content that most likely misled the agent toward that direction, and return the image region that covers it: a horizontal range, and optionally a vertical range. That region will be blacked out, and kept on the same place in the scene as the agent moves, so the agent no longer sees it when deciding where to go.\n\n# Inputs\n<instruction>\n{instruction}\n</instruction>\nChosen direction: {direction} degrees\n\nAngles are in degrees from the agent's current forward direction: 0 is straight ahead, positive is to the left, negative is to the right.\n\nThe camera images follow this text. Before each image is a line \"view=<name> hfov=<H> center=<C>\":\n- H is the image's full horizontal field of view, in degrees.\n- C is the direction of the image center, in the same convention. The left edge is at C + H/2 and the right edge at C - H/2.\n- The cameras are pinhole cameras, so horizontal position is not linear in angle. Direction d appears at x = 0.5 * (1 - tan(d - C) / tan(H/2)), with d - C wrapped into [-180, 180]. x = 0 is the left edge and x = 1 the right edge. The formula holds when |d - C| <= H/2; otherwise d is outside that image.\n- Vertical position is plain image position: y = 0 is the top edge of the image and y = 1 the bottom edge. The cameras look horizontally, so the horizon is near y = 0.5.\n\n# What to look for\nThe distractor is the visible content that best explains why the agent chose this direction instead of following the instruction. Typically it resembles, or can be mistaken for, something the instruction mentions (an object, doorway, hallway, staircase, room or landmark), or it is an open path that looks more inviting than the described route.\n- Locate the chosen direction in the images, then examine the content at and around it.\n- Prefer content at or near the chosen direction. Choose content farther away only if nothing near it plausibly explains the choice.\n- If the chosen direction is outside every image, start from the view whose edge is closest to it.\n\n# Range rules\n- Exactly one contiguous range in exactly one view. If the distractor spans two views, use the view that holds most of it; the range may run to 0 or 1.\n- Always give x_range: cover the distractor's full horizontal extent. Covering the doorway, path or landmark the instruction actually needs would defeat the purpose.\n- Give y_range as well when the distractor occupies only part of the image height (a doorway, a sign, a piece of furniture), so that the floor, ceiling or wall around it stays visible. Cover its full vertical extent. Do not extend it to the floor or the ceiling unless the distractor reaches there.\n- Omit y_range when the distractor spans the whole image height, or when you cannot place it vertically. Leaving it out means the region keeps the full image height.\n- Always give your best estimate, even when unsure.\n\n# Output format\nReply with exactly one line and nothing else, with no explanation and no Markdown:\nview=<name> x_range=[<left>, <right>] y_range=[<top>, <bottom>]\nor, when you omit the vertical range:\nview=<name> x_range=[<left>, <right>]\n<name> is one of the given view names. <left> and <right> are decimals with 0 <= left < right <= 1, measured across that view's image as defined above. <top> and <bottom> are decimals with 0 <= top < bottom <= 1, measured down that same image: 0 is the top edge, 1 the bottom edge.",
+      "parser": "xy_range",
+      "timeout": 300
+    }
+  },
+  "tracker_spec": {
+    "kind": "surface",
+    "rows": 16,
+    "gap_max": 1.0,
+    "near_z": 0.01
+  },
+  "save_images": -1,
+  "adapter": {
+    "root": "/home/jwm/workspace/opensource/OmniNav/infer_r2r_rxr",
+    "scratch": "/tmp/c6002-omninav",
+    "config": "data/r2r_pano.yaml",
+    "model_path": "/home/jwm/workspace/opensource/OmniNav/infer_r2r_rxr/data/checkpoint-omninav",
+    "opts": [],
+    "history": "clean"
+  }
+}

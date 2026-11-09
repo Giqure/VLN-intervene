@@ -25,9 +25,11 @@ from ..paths import ENV_FILE
 from .geom import wrap180
 
 USER_AGENT = 'occlusion-client/0.1'  # the gateway's Cloudflare rejects urllib's default agent (HTTP 403, 1010)
-# Seconds to wait before each retry of a transient failure (connection reset, timeout, HTTP 429/5xx). No literature
-# basis; a retry does not change the request, so the model sees the same input.
+# Seconds to wait before each retry of a transient failure (connection reset, timeout, HTTP 413/429/5xx). No literature
+# basis; a retry does not change the request, so the model sees the same input. 413 is retried because the gateway's
+# nginx answered it for two requests smaller than ones it had accepted, and the same request went through when resent.
 RETRY_WAITS = (5, 15, 45)
+RETRY_CODES = (413, 429)
 COMMON = ('base_url', 'api_key_env', 'model_name', 'reasoning_effort', 'request', 'parser', 'timeout')
 
 
@@ -137,7 +139,7 @@ def call_responses(options, payload):
             break
         except urllib.error.HTTPError as e:
             detail = 'region model HTTP %d: %s' % (e.code, e.read()[:500].decode('utf-8', 'replace'))
-            if not (e.code == 429 or e.code >= 500):
+            if not (e.code in RETRY_CODES or e.code >= 500):
                 raise RuntimeError(detail)
             failure = detail
         except (urllib.error.URLError, socket.timeout, ConnectionError, http.client.HTTPException) as e:
