@@ -7,12 +7,14 @@ apply unchanged. Pillow is imported lazily, only when images are encoded.
 
 import base64
 import hashlib
+import http.client
 import io
 import json
 import math
 import os
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -23,6 +25,9 @@ from .geom import wrap180
 
 ENV_FILE = Path(__file__).resolve().parents[3] / '.env'
 USER_AGENT = 'occlusion-client/0.1'  # the gateway's Cloudflare rejects urllib's default agent (HTTP 403, 1010)
+# Seconds to wait before each retry of a transient failure (connection reset, timeout, HTTP 429/5xx). No literature
+# basis; a retry does not change the request, so the model sees the same input.
+RETRY_WAITS = (5, 15, 45)
 COMMON = ('base_url', 'api_key_env', 'model_name', 'reasoning_effort', 'request', 'parser', 'timeout')
 
 
@@ -43,7 +48,27 @@ def load_env(path=None):
             os.environ[key] = value
 
 
+PROVIDER_FILE = Path(__file__).resolve().parents[1] / 'configs' / 'provider.json'
+PROVIDER_FIELDS = ('base_url', 'api_key_env', 'model_name')
+
+
+def provider_options(options):
+    """Options with the endpoint taken from configs/provider.json when that file exists.
+
+    The batch parameters (and so the batch name and every archived record) keep the provider they were planned
+    with; switching provider only needs this file. Each region record states the provider actually used.
+    """
+    if not PROVIDER_FILE.is_file():
+        return options
+    override = json.loads(PROVIDER_FILE.read_text(encoding='utf-8'))
+    unknown = set(override) - set(PROVIDER_FIELDS)
+    if unknown or not all(isinstance(v, str) and v.strip() for v in override.values()):
+        raise ValueError('%s may only set non-empty strings for %s' % (PROVIDER_FILE, PROVIDER_FIELDS))
+    return dict(options, **override)
+
+
 def api_key(options):
+    options = provider_options(options)
     load_env()
     name = options['api_key_env']
     value = os.environ.get(name, '')
@@ -95,18 +120,30 @@ def build_views_input(options, cand, frame, rig):
 
 def call_responses(options, payload):
     """POST {base_url}/v1/responses; returns (text of the message output, metadata). Errors never carry the key."""
+    options = provider_options(options)
     body = {'model': options['model_name'], 'input': payload,
             'reasoning': {'effort': options['reasoning_effort']}}
     req = urllib.request.Request(
         options['base_url'].rstrip('/') + '/v1/responses', data=json.dumps(body).encode('utf-8'),
         headers={'Authorization': 'Bearer ' + api_key(options), 'Content-Type': 'application/json',
                  'User-Agent': USER_AGENT})
-    try:
-        data = json.loads(urllib.request.urlopen(req, timeout=float(options['timeout'])).read().decode('utf-8'))
-    except urllib.error.HTTPError as e:
-        raise RuntimeError('region model HTTP %d: %s' % (e.code, e.read()[:500].decode('utf-8', 'replace')))
-    except (urllib.error.URLError, socket.timeout) as e:
-        raise RuntimeError('region model request failed: %s' % (getattr(e, 'reason', e),))
+    data, attempts = None, 0
+    for wait in (0,) + tuple(RETRY_WAITS):
+        if wait:
+            time.sleep(wait)
+        attempts += 1
+        try:
+            data = json.loads(urllib.request.urlopen(req, timeout=float(options['timeout'])).read().decode('utf-8'))
+            break
+        except urllib.error.HTTPError as e:
+            detail = 'region model HTTP %d: %s' % (e.code, e.read()[:500].decode('utf-8', 'replace'))
+            if not (e.code == 429 or e.code >= 500):
+                raise RuntimeError(detail)
+            failure = detail
+        except (urllib.error.URLError, socket.timeout, ConnectionError, http.client.HTTPException) as e:
+            failure = 'region model request failed: %s' % (getattr(e, 'reason', None) or repr(e),)
+    if data is None:
+        raise RuntimeError('%s (after %d attempts)' % (failure, attempts))
     if data.get('status') != 'completed':
         raise RuntimeError('region model response not completed: %r' % (data.get('status'),))
     # The gateway once answered a gpt-5.6-luna request with gpt-6.1-sol, so a silent reroute is an error.
@@ -120,7 +157,8 @@ def call_responses(options, payload):
                    for c in o.get('content', []) if c.get('type') == 'output_text')
     if not text:
         raise RuntimeError('region model returned no text')
-    return text, {'model': model, 'effort': effort, 'usage': data.get('usage')}
+    return text, {'model': model, 'effort': effort, 'usage': data.get('usage'), 'attempts': attempts,
+                  'base_url': options['base_url']}
 
 
 def parse_x_range(text, options, rig):

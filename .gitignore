@@ -1,0 +1,32 @@
+# Local experiment inputs, outputs and environments
+/351/
+/results/
+/data/
+/experiments/
+/archive/
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+*_venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+/build/
+/dist/
+*.log
+*.lock
+*.jsonl
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+*.zst
+# Host-specific provider and experiment settings
+/occlusion/configs/provider.json
+/occlusion/configs/*.local.json
+/occlusion/configs/*-d+*.json
+/occlusion/configs/*-d-*.json

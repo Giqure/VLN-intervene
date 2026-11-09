@@ -209,10 +209,10 @@ class Adapter(object):
         raise NotImplementedError
 
     def close(self):
+        # Called once per batch, when the run ends or the batch is aborted. The policy is loaded in __init__ and
+        # reused across candidates, so it is dropped only here.
         if hasattr(self, 'env'):
             self.env.close()
-        # Drop the policy too: after a failed candidate the next adapter loads the model again, and the old
-        # weights must not still sit on the GPU (the second load then fails with offloaded modules).
         if getattr(self, 'agent', None) is not None:
             self.agent = None
 

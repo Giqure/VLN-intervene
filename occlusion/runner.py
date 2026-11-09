@@ -276,6 +276,7 @@ def run(model, batch, episodes=None, limit=None, fail_fast=False, retry_errors=F
     if episodes:
         candidates = [c for c in candidates if c['ep'] in set(map(str, episodes))]
     adapter, finished, skipped, failed = None, 0, 0, 0
+    last_error, repeats = None, 0
     with exclusive(batch_dir(model, batch) / '.run.lock'):
         try:
             for c in candidates:
@@ -312,6 +313,7 @@ def run(model, batch, episodes=None, limit=None, fail_fast=False, retry_errors=F
                     store.write_json_atomic(path, record)
                     store.write_json_atomic(attempt, dict(at=now(), status='complete', cand=c))
                     finished += 1
+                    last_error, repeats = None, 0
                     print('DONE %s %s: SR=%s SPL=%s nDTW=%s' %
                           (model, c['ep'], result['branch']['success'], result['branch']['spl'], result['branch']['ndtw']), flush=True)
                 except Exception as exc:
@@ -319,11 +321,21 @@ def run(model, batch, episodes=None, limit=None, fail_fast=False, retry_errors=F
                     store.append_error(model, batch, dict(ep=c['ep'], step=c['step'], at=now(),
                                        error=repr(exc), error_type=type(exc).__name__, traceback=traceback.format_exc()))
                     store.write_json_atomic(attempt, dict(at=now(), status='error', cand=c, error=repr(exc)))
-                    if adapter is not None:
-                        adapter.close()
-                        adapter = None
+                    # Keep the adapter across failures. It owns the loaded policy and the native environment;
+                    # discarding it reloaded the model for every following candidate, and a reload while the GPU
+                    # was still holding the previous copy sent layers to CPU (device_map="auto") before the
+                    # native .cuda(), which then raised and failed every later candidate in turn.
                     if fail_fast:
                         raise
+                    # One failure can leave every later candidate failing the same way (an environment that
+                    # cannot be reset); stop instead of marking the whole queue as failed.
+                    key = (type(exc).__name__, str(exc)[:120])
+                    repeats = repeats + 1 if key == last_error else 1
+                    last_error = key
+                    if repeats >= 2:
+                        raise RuntimeError('stopped after %d consecutive identical errors (%s: %s); finished %d, '
+                                           'failed %d. The failed candidates rerun on the next run.' %
+                                           (repeats, key[0], key[1], finished, failed))
                 free_gpu()
         finally:
             if adapter is not None:
