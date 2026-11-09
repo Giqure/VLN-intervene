@@ -11,7 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-ARCHIVE = Path('/media/jwm/大数据/result')
+from ..paths import ARCHIVE
+
 SERIES = {'omninav': 'C6002o', 'simplevln': 'C6002s', 'etpnav': 'C6002e'}
 D_UNIT = {'omninav': 'forward_step', 'simplevln': 'waypoint', 'etpnav': 'planning'}
 

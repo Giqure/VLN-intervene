@@ -1,6 +1,6 @@
 # 偏离点遮挡干预（C6002）
 
-实现依据：`intervene/proposal.md`。原始评测、人工标注、模型输出保持原样；仅按方案向正式归档的原轨迹追加/更新 `deviation` 记录。
+实现依据：仓库根目录的 `proposal.md`。原始评测、人工标注、模型输出保持原样；仅按方案向正式归档的原轨迹追加/更新 `deviation` 记录。
 
 ## 模块
 
@@ -11,11 +11,11 @@
 - `offline.py`：按原轨迹观测位姿渲染，可逐像素检查附加 tracker 深度相机前后的原 RGB。
 - `viz/`：批次报告与逐条人工复核页面。
 - `configs/`：JSON 配置模板及区域/tracker 配置片段；不是可直接启动的正式实验参数。
-- `tests/`、`selftest.py`：纯合成单元测试及旧环境 core 自测，不代表实际模型实验结果。
+- 仓库根目录 `tests/`：路径隔离、报告输出和纯合成涂黑测试，不代表实际模型实验结果。
 
 ## 环境与先决条件
 
-从仓库根目录 `/home/jwm/workspace/vln` 执行命令，或将该目录加入 `PYTHONPATH`。
+先在当前独立仓库根目录执行 `python -m pip install -e . --no-deps --no-build-isolation`，之后可从任意目录运行 `python -m intervene.occlusion`。不安装时，可在本仓库根目录运行 `python -m occlusion`。外部路径配置见根目录 [README](../README.md)。
 
 | 模型 | 本地原工程 | 环境 |
 | --- | --- | --- |
@@ -25,7 +25,7 @@
 
 模型依赖、权重、数据集、Habitat 及驱动沿用各自原工程，不在 core 中混装。core 仅依赖 NumPy；完整测试还需 pytest，图片保存需 Pillow。适配器使用模型原生评测和度量。
 
-正式归档根固定为 **`/media/jwm/大数据/result`**，必须已挂载，且存在 `checksums.jsonl`、`manifest.json`、`README.md`、`settings.json`。程序不会在别处回退生成正式归档。`adapter.scratch` 必须是独立的绝对路径，不可指向原始评测或原始模型输出目录。
+正式归档根通过 `INTERVENE_ARCHIVE_ROOT` 配置；未配置时沿用 **`/media/jwm/大数据/result`**。目录必须已存在，且存在 `checksums.jsonl`、`manifest.json`、`README.md`、`settings.json`。程序不会在别处回退生成正式归档。`adapter.scratch` 必须是独立的绝对路径，不可指向原始评测或原始模型输出目录。
 
 SimpleVLN 还需要可访问的 vLLM OpenAI 兼容服务，以及与当前 split 匹配的原生 R2R GT 文件。`gt_path` 支持 `{split}` 占位符，不能用其他数据集的 GT 代替。原记录缺少 nDTW 时，用原生 NDTW measure 对归档 positions 计算，不补零。
 
@@ -131,7 +131,7 @@ OmniNav 与 ETPNav 是确定性的：出错或中断留下的 attempt 在下次 
 
 - 正式批次：`<archive>/experiments/<model>/intervene/<series>/<batch>/`，保存参数、candidates、plan、offline 等。series 分别为 `C6002o`、`C6002s`、`C6002e`。
 - 分支 run、attempt、图片位于归档模型 episode 目录的干预子目录；沿用归档索引中的 `episodes[].directory`，不另造 episode 目录。
-- 本地 `intervene/results/<model>/<batch>/` 只保存 `summary.json`、`index.html`、`review.html`。页面链接归档中的原始图片，不把 run 或图片复制到本地 results。
+- 本仓库 `results/<model>/<batch>/`（可用 `INTERVENE_RESULTS_ROOT` 覆盖） 只保存 `summary.json`、`index.html`、`review.html`。页面链接归档中的原始图片，不把 run 或图片复制到本地 results。
 - 批次有独占锁，JSON/JSONL 原子写入，归档变更先记入各系列 `records.jsonl`。
 
 批次阶段结束、无其他进程写正式归档时，用一次维护命令汇总所涉及模型：
@@ -146,11 +146,8 @@ python3 -m intervene.occlusion commit-meta \
 ## 验证与当前运行边界
 
 ```bash
-python3 -m compileall -q intervene/occlusion
-python3 -m pytest -q intervene/occlusion/tests
-conda run -n etpnav python -m intervene.occlusion selftest
-conda run -n omninav python -m intervene.occlusion selftest
-conda run -n simplevln-eval python -m intervene.occlusion selftest
+python3 -m compileall -q occlusion
+python3 -m pytest -q tests
 python3 -m intervene.occlusion --help
 ```
 

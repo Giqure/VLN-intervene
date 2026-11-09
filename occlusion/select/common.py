@@ -6,11 +6,8 @@ from pathlib import Path
 
 from ..core import store
 from ..core.geom import yaw_from_quat
+from ..paths import DATASET, EXPORT, OPEN, WORKSPACE
 
-WORKSPACE = Path(__file__).resolve().parents[3]
-OPEN = WORKSPACE.parent / 'opensource'
-DATASET = WORKSPACE.parent / 'dataset/R2R_VLNCE_v1-3_preprocessed'
-EXPORT = WORKSPACE / 'results/export'
 REVIEWS = {
     'omninav': EXPORT / 'omninav-val-unseen-failure-analysis/omninav-val-unseen-manual-reviews_1013deviation.json',
     'simplevln': EXPORT / 'simplevln-val-unseen-failure-analysis/simplevln-val-unseen-waypoints-manual-reviews.json',

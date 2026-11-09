@@ -20,7 +20,7 @@
   },
   "save_images": -1,
   "adapter": {
-    "root": "/home/jwm/workspace/opensource/ETPNav",
+    "root": "/ABSOLUTE/ETPNAV",
     "scratch": "/ABSOLUTE/ISOLATED/SCRATCH/etpnav",
     "config": "run_r2r/iter_train.yaml",
     "opts": []

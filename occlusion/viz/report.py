@@ -10,7 +10,8 @@ import numpy as np
 
 from .. import runner
 from ..core import store
-from ..select.common import WORKSPACE, primary
+from ..paths import RESULTS
+from ..select.common import primary
 
 STYLE = '''body{font:15px system-ui,sans-serif;background:#f4f6fa;color:#17233b;margin:28px auto;max-width:1260px;padding:0 18px}h1,h2{color:#142f57}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:9px;text-align:right;border-bottom:1px solid #dde3ec}th:first-child,td:first-child{text-align:left}th{background:#e6edf7}section,article{background:white;border:1px solid #dce2eb;border-radius:9px;padding:20px;margin:18px 0}.metrics{display:flex;gap:24px;flex-wrap:wrap}.muted{color:#62728a}.plot{max-width:100%;height:auto}.views{display:flex;flex-wrap:wrap;gap:12px}.view{max-width:390px}img{max-width:100%;height:auto}a{color:#225dab}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f2f5f9;padding:12px}input,select{padding:8px;margin-right:12px}summary{cursor:pointer}.legend span{margin-right:18px}.ok{color:#17764b}.bad{color:#bd3434}'''
 
@@ -94,7 +95,7 @@ def image_gallery(record, source_dir, page_dir):
 
 def build(model, batch):
     params, records, missing = runner.runs(model, batch)
-    root = WORKSPACE / 'intervene/results' / model / batch
+    root = RESULTS / model / batch
     summary_path = root / 'summary.json'
     if not summary_path.exists():
         runner.analyze(model, batch)

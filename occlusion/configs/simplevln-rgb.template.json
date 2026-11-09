@@ -22,7 +22,7 @@
   },
   "save_images": -1,
   "adapter": {
-    "root": "/home/jwm/workspace/opensource/SimpleVLN/eval",
+    "root": "/ABSOLUTE/SIMPLEVLN/eval",
     "scratch": "/ABSOLUTE/ISOLATED/SCRATCH/simplevln",
     "config": "config/vln_r2r.yaml",
     "base_url": "REQUIRED_VLLM_OPENAI_BASE_URL",

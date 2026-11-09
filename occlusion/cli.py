@@ -34,7 +34,6 @@ def parser():
             command.add_argument('--check-rgb', action='store_true', help='compare baseline/augmented sensors pixel-for-pixel')
     meta = sub.add_parser('commit-meta', help='single-process archive-root metadata maintenance')
     meta.add_argument('--model', choices=sorted(runner.ADAPTERS), action='append', required=True)
-    sub.add_parser('selftest', help='NumPy-only synthetic core tests, compatible with Python 3.6')
     return p
 
 
@@ -47,10 +46,7 @@ def main(argv=None):
     if getattr(args, 'limit', None) is not None and args.limit < 1:
         p.error('--limit must be positive')
     try:
-        if args.command == 'selftest':
-            from .selftest import run
-            result = run()
-        elif args.command == 'plan':
+        if args.command == 'plan':
             params = json.loads(args.config.resolve().read_text(encoding='utf-8'))
             result = runner.plan(params, args.none_batch)
         elif args.command == 'run':

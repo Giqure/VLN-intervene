@@ -21,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
+from ..paths import ENV_FILE
 from .geom import wrap180
 
-ENV_FILE = Path(__file__).resolve().parents[3] / '.env'
 USER_AGENT = 'occlusion-client/0.1'  # the gateway's Cloudflare rejects urllib's default agent (HTTP 403, 1010)
 # Seconds to wait before each retry of a transient failure (connection reset, timeout, HTTP 429/5xx). No literature
 # basis; a retry does not change the request, so the model sees the same input.

@@ -22,7 +22,7 @@
   },
   "save_images": -1,
   "adapter": {
-    "root": "/home/jwm/workspace/opensource/OmniNav/infer_r2r_rxr",
+    "root": "/ABSOLUTE/OMNINAV/infer_r2r_rxr",
     "scratch": "/ABSOLUTE/ISOLATED/SCRATCH/omninav",
     "config": "data/r2r_pano.yaml",
     "model_path": "/ABSOLUTE/OMNINAV/CHECKPOINT",

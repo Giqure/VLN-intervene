@@ -21,7 +21,8 @@ from .core import semantic, stats, store
 from .core.regions import check_angular_spec, columns_range
 from .core.rig import Rig
 from .core.trackers import make_tracker
-from .select.common import WORKSPACE, original_metrics, primary
+from .paths import REPO_ROOT, RESULTS, WORKSPACE
+from .select.common import original_metrics, primary
 
 ADAPTERS = {'omninav': 'OmniNavAdapter', 'simplevln': 'SimpleVLNAdapter', 'etpnav': 'ETPNavAdapter'}
 METRICS = ('success', 'spl', 'ndtw')
@@ -228,7 +229,8 @@ def environment(adapter):
                rig=adapter.rig.to_json(),
                conda_env=os.environ.get('CONDA_DEFAULT_ENV', Path(sys.executable).resolve().parent.parent.name))
     out['git_commit'] = {}
-    for label, path in [('workspace', WORKSPACE), ('model', adapter.params['adapter'].get('root', Path.cwd()))]:
+    for label, path in [('intervene', REPO_ROOT), ('workspace', WORKSPACE),
+                        ('model', adapter.params['adapter'].get('root', Path.cwd()))]:
         try:
             out['git_commit'][label] = subprocess.check_output(
                 ['git', '-C', str(path), 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL,
@@ -382,6 +384,6 @@ def analyze(model, batch, n_boot=1000, level=.95, seed=0):
                   groups=stats.paired(records, METRICS, weights, groups, level=level),
                   flips=stats.flips(records))
     store.validate(result, store.SUMMARY)
-    root = WORKSPACE / 'intervene/results' / model / batch
+    root = RESULTS / model / batch
     store.write_json_atomic(root / 'summary.json', result)
     return result
