@@ -59,3 +59,11 @@ def test_413_that_never_clears_still_ends_in_an_error_after_all_attempts(transpo
     with pytest.raises(RuntimeError, match='HTTP 413.*after 4 attempts'):
         semantic.call_responses(OPTIONS, [])
     assert transport['calls'] == 4 and transport['waits'] == [5, 15, 45]
+
+
+def test_run_accepts_no_images_and_defaults_to_off():
+    from occlusion import cli
+    args = cli.parser().parse_args(['run', '--model', 'omninav', '--batch', 'b'])
+    assert args.no_images is False
+    args = cli.parser().parse_args(['run', '--model', 'omninav', '--batch', 'b', '--no-images'])
+    assert args.no_images is True

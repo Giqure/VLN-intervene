@@ -23,6 +23,8 @@ def parser():
             command.add_argument('--limit', type=int)
         if name == 'run':
             command.add_argument('--fail-fast', action='store_true')
+            command.add_argument('--no-images', action='store_true',
+                                 help='save no images in this run, whatever the batch save_images says (batch identity unchanged)')
             command.add_argument('--retry-errors', action='store_true',
                                  help='repeat candidates whose earlier attempt failed (only needed for SimpleVLN; '
                                       'OmniNav and ETPNav always rerun them)')
@@ -50,7 +52,7 @@ def main(argv=None):
             params = json.loads(args.config.resolve().read_text(encoding='utf-8'))
             result = runner.plan(params, args.none_batch)
         elif args.command == 'run':
-            result = runner.run(args.model, args.batch, args.episode, args.limit, args.fail_fast, args.retry_errors)
+            result = runner.run(args.model, args.batch, args.episode, args.limit, args.fail_fast, args.retry_errors, args.no_images)
         elif args.command == 'analyze':
             if not 0 < args.level < 1 or args.n_boot < 1:
                 p.error('require 0 < level < 1 and n-boot > 0')

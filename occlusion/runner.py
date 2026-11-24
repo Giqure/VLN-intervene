@@ -285,7 +285,7 @@ def free_gpu():
         torch.cuda.empty_cache()
 
 
-def run(model, batch, episodes=None, limit=None, fail_fast=False, retry_errors=False):
+def run(model, batch, episodes=None, limit=None, fail_fast=False, retry_errors=False, no_images=False):
     params, candidates = load_batch(model, batch)
     if episodes:
         candidates = [c for c in candidates if c['ep'] in set(map(str, episodes))]
@@ -314,6 +314,9 @@ def run(model, batch, episodes=None, limit=None, fail_fast=False, retry_errors=F
                     module = importlib.import_module('.agents.' + model, __package__)
                     if adapter is None:
                         adapter = getattr(module, ADAPTERS[model])(params, path.parent)
+                        if no_images:
+                            # runtime only: the recorded params (batch identity) keep the planned save_images
+                            adapter.params = dict(params, save_images=0)
                     adapter.output = path.parent
                     result = adapter.run(c)
                     if adapter.rig.to_json() != params['rig']:
